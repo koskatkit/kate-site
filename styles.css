@@ -509,7 +509,7 @@ img[src$=".svg"] {
   color: rgba(42, 36, 32, 0.7);
 }
 
-/* ---------- Portfolio: rising masonry (desktop) / horizontal scroll (mobile) ---------- */
+/* ---------- Portfolio: dual-track rising grid (3×7 desktop, 2×10 mobile) ---------- */
 
 .gallery-stage {
   position: relative;
@@ -522,65 +522,83 @@ img[src$=".svg"] {
   border-radius: 6px;
 }
 
-/* Desktop / tablet: vertical rising animation */
+/* Desktop / tablet: taller stage to fit 3 columns comfortably */
 @media (min-width: 768px) {
   .gallery-stage {
-    height: 560px;
+    height: 600px;
   }
 }
 
-/* Mobile: 2-column rising masonry (no overlap) */
+/* Mobile: shorter stage */
 @media (max-width: 767px) {
   .gallery-stage {
-    height: 380px;
-    overflow: hidden;
+    height: 500px;
   }
 }
 
-/* Photo card — common styles */
-.gallery-card {
+/* Track holds 2 blocks stacked vertically; whole track moves up via transform */
+.gallery-track {
   position: absolute;
   top: 0;
   left: 0;
+  width: 100%;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+/* Each block is a masonry via CSS columns. Cards have break-inside: avoid. */
+.gallery-block {
+  position: relative;
+  width: 100%;
+  column-count: 3;
+  column-gap: 10px;
+  padding: 10px;
+  break-inside: avoid;
+}
+@media (max-width: 767px) {
+  .gallery-block {
+    column-count: 2;
+    column-gap: 10px;
+    padding: 10px;
+  }
+}
+
+/* Photo card — uses CSS columns (masonry-like layout) */
+.gallery-card {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px 0;
   background: var(--bg);
   padding: 4px; /* frame around photo, in site color */
   box-shadow: 0 4px 12px rgba(42, 36, 32, 0.12), 0 1px 3px rgba(42, 36, 32, 0.08);
   overflow: hidden;
-  /* GPU layer — keep transform isolated (only translate3d) */
-  will-change: transform;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  pointer-events: none; /* cards never react to cursor/tap */
   border-radius: 6px;
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+  pointer-events: none;
 }
 .gallery-card img {
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   object-fit: cover;
   pointer-events: none;
   -webkit-user-drag: none;
   user-select: none;
+  border-radius: 3px;
 }
 
-/* Three size variants — portrait 4:5 cards of different heights */
-.gallery-card--sm { width: 160px; height: 200px; }
-.gallery-card--md { width: 220px; height: 275px; }
-.gallery-card--lg { width: 280px; height: 350px; }
-
-/* On mobile: cards take ~50% of stage width each, anchored to outer edges
-   → ~5px overlap at center on any screen size */
-@media (max-width: 767px) {
-  .gallery-card--sm { width: 50%; height: 150px; }
-  .gallery-card--md { width: 50%; height: 188px; }
-  .gallery-card--lg { width: 50%; height: 220px; }
-}
+/* Three aspect-ratio variants for visual variety.
+   All cards have full column width; only aspect-ratio differs. */
+.gallery-card--sm img { aspect-ratio: 1 / 1; }      /* square — short */
+.gallery-card--md img { aspect-ratio: 4 / 5; }      /* portrait — medium */
+.gallery-card--lg img { aspect-ratio: 3 / 4; }      /* taller portrait */
 
 /*
-   Animation is driven by JavaScript via requestAnimationFrame.
-   JS sets transform: translate3d(x, y, 0) every frame — smooth, GPU-accelerated,
-   no CSS keyframes conflicts. Opacity is handled by JS too.
+   Animation: rAF-driven translateY on .gallery-track.
+   Track holds 2 blocks; when block A leaves viewport top, it is rebuilt
+   with new shuffle (still off-screen). Cycle repeats → infinite tape.
 */
 
 /* ---------- Tiers ---------- */
@@ -687,9 +705,10 @@ img[src$=".svg"] {
 .meta-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
 
 .booking-form {
-  background: var(--card);
+  background: var(--accent-dark);
+  color: #faf5f0;
   padding: 40px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent-dark);
   border-radius: 6px;
 }
 @media (max-width: 640px) { .booking-form { padding: 24px; } }
@@ -707,37 +726,64 @@ img[src$=".svg"] {
   color: var(--muted);
   font-weight: 500;
 }
+/* Dark booking form: labels are light on dark background */
+.booking-form .form-field label {
+  color: rgba(250, 245, 240, 0.75);
+}
+.booking-form .form-field .req {
+  color: #d4b896;
+}
 .req { color: var(--accent); }
 .form-field input,
 .form-field select,
 .form-field textarea {
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: rgba(250, 245, 240, 0.08);
+  border: 1px solid rgba(250, 245, 240, 0.25);
   padding: 12px 14px;
   font-size: 15px;
-  color: var(--fg);
+  color: #faf5f0;
   border-radius: var(--radius);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   width: 100%;
+}
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: rgba(250, 245, 240, 0.4);
 }
 .form-field input:focus,
 .form-field select:focus,
 .form-field textarea:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(109, 91, 70, 0.12);
+  background: rgba(250, 245, 240, 0.12);
+  border-color: #faf5f0;
+  box-shadow: 0 0 0 3px rgba(250, 245, 240, 0.1);
 }
+.form-field select { color: #faf5f0; }
+.form-field select option { background: var(--accent-dark); color: #faf5f0; }
 .form-field textarea { resize: vertical; min-height: 120px; }
 .form-error {
   font-size: 12px;
-  color: #c0392b;
+  color: #f5b8a8;
   min-height: 0;
   transition: min-height 0.2s ease;
 }
 .form-field.has-error input,
 .form-field.has-error select,
 .form-field.has-error textarea {
-  border-color: #c0392b;
+  border-color: #f5b8a8;
+}
+/* Submit button — light on dark form */
+.booking-form .btn-primary {
+  background: #faf5f0;
+  color: var(--accent-dark);
+  border: 1px solid #faf5f0;
+}
+.booking-form .btn-primary:hover {
+  background: var(--bg);
+  border-color: var(--bg);
+}
+.booking-form .form-foot__note {
+  color: rgba(250, 245, 240, 0.6);
 }
 .form-foot {
   flex-direction: column;

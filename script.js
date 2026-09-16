@@ -300,10 +300,13 @@
     });
   });
 
-  // ---------- PORTFOLIO GALLERY (rising masonry, rAF-driven) ----------
+  // ---------- PORTFOLIO GALLERY (dual-block rising tape, rAF-driven) ----------
   (function initGallery() {
     const stage = document.getElementById('galleryStage');
-    if (!stage) return;
+    const track = document.getElementById('galleryTrack');
+    const blockA = document.getElementById('galleryBlockA');
+    const blockB = document.getElementById('galleryBlockB');
+    if (!stage || !track || !blockA || !blockB) return;
 
     // ---------- USER: list your gallery photos here ----------
     // Drop your files into assets/gallery/ and list them below.
@@ -333,24 +336,18 @@
     ];
 
     const SIZE_CLASSES = ['gallery-card--sm', 'gallery-card--md', 'gallery-card--lg'];
-    const SIZE_HEIGHTS = { 'gallery-card--sm': 200, 'gallery-card--md': 275, 'gallery-card--lg': 350 };
-
     const mqMobile = window.matchMedia('(max-width: 767px)');
     let isMobile = mqMobile.matches;
 
-    // Read stage dims once, recompute on resize (debounced)
-    function getStageDims() {
-      return {
-        w: stage.clientWidth,
-        h: stage.clientHeight
-      };
+    // Cards per block: 3×7=21 desktop, 2×10=20 mobile
+    function cardsPerBlock() {
+      return isMobile ? 20 : 21;
     }
-    let stageDims = getStageDims();
 
-    // Stable shuffle (deterministic per load, so layout doesn't jump)
+    // Stable seeded shuffle (deterministic per seed)
     function seededShuffle(arr, seed) {
       const a = arr.slice();
-      let s = seed;
+      let s = seed || 1;
       for (let i = a.length - 1; i > 0; i--) {
         s = (s * 9301 + 49297) % 233280;
         const j = Math.floor((s / 233280) * (i + 1));
@@ -359,114 +356,50 @@
       return a;
     }
 
-    // Build card data
-    const cardsData = GALLERY_IMAGES.map(function (src, i) {
-      return {
-        src: src,
-        sizeClass: SIZE_CLASSES[i % SIZE_CLASSES.length],
-        index: i
-      };
-    });
-    const shuffled = seededShuffle(cardsData, 42);
-
-    // Create DOM elements
-    const cardEls = shuffled.map(function (card, i) {
-      const el = document.createElement('div');
-      el.className = 'gallery-card ' + card.sizeClass;
-      const img = document.createElement('img');
-      img.src = card.src;
-      img.alt = 'Gallery photo ' + (card.index + 1);
-      img.loading = 'lazy';
-      el.appendChild(img);
-      stage.appendChild(el);
-      return el;
-    });
-
-    // ---------- DESKTOP: vertical rising via rAF ----------
-    // Each card has: column (0..3), x-jitter, rotation, duration, phase offset.
-    // Position is computed each frame as: y = lerp(startY, endY, progress)
-    // Opacity fades at the very start (0–8%) and end (92–100%) of cycle.
-
-    const COLS_DESKTOP = 4;
-
-    const desktopCards = shuffled.map(function (card, i) {
-      const col = i % COLS_DESKTOP;
-      const colWidth = stageDims.w / COLS_DESKTOP;
-      const baseX = col * colWidth + (colWidth / 2) - 100;
-      // Use deterministic pseudo-random for stable layout
-      const jitter = Math.sin(i * 7.3) * 30 - 15; // ±15–30 px
-      const rotation = Math.sin(i * 3.7) * 2.5; // ±2.5deg
-      const duration = 22000 + (i % 6) * 2000; // 22–32 sec per rise
-      const phase = (i * 0.27) % 1; // staggered phase 0..1 — each card starts mid-cycle
-      return {
-        el: cardEls[i],
-        x: baseX + jitter,
-        rotation: rotation,
-        duration: duration,
-        phase: phase,
-        startY: stageDims.h + 50, // below stage
-        endY: -SIZE_HEIGHTS[card.sizeClass] - 50 // above stage
-      };
-    });
-
-    // ---------- MOBILE: 2-column vertical rising (no overlap) ----------
-    // On mobile, use 8 cards total (4 per column).
-    // With 4 cards per column and 28s cycle → 7s gap between cards.
-    // Card height ~150-212px + 30px gap = max ~242px.
-    // In 7s, a card travels ~242px (242/7 ≈ 35px/s).
-    // Stage height 380px / 35px per sec = ~11s for full traversal.
-    // 11s traversal < 7s gap → cards NEVER overlap.
-    const MOBILE_MAX_CARDS = 8;
-    const MOBILE_DURATION = 28000; // 28s per cycle
-    const mobileSource = shuffled.slice(0, MOBILE_MAX_CARDS);
-    const mobileCards = mobileSource.map(function (card, i) {
-      return {
-        el: cardEls[i],
-        sizeClass: card.sizeClass,
-        duration: MOBILE_DURATION,
-        phase: 0,
-        col: 0,
-        cardIndexInCol: 0
-      };
-    });
-
-    const MOBILE_COLS = 2;
-    function applyMobileLayout() {
-      const stageW = stage.clientWidth;
-      const colCounts = [0, 0];
-      mobileCards.forEach(function (c, i) {
-        c.col = i % MOBILE_COLS;
-        c.cardIndexInCol = colCounts[c.col]++;
-      });
-      const perCol = [colCounts[0], colCounts[1]];
-      mobileCards.forEach(function (c, i) {
-        const w = c.el.offsetWidth;
-        // Two cards per row, anchored to outer edges, overlapping at the middle.
-        // Left column: card's left edge at 4px from stage left
-        //   → its right edge extends into the right column by overlapShift px
-        // Right column: card's right edge at 4px from stage right
-        //   → its left edge extends into the left column by overlapShift px
-        // Net effect: cards touch outer edges and overlap by 2×overlapShift at center.
-        const edgeMargin = 4;
-        const overlapShift = 4; // each column shifts 4px past center → 8px total overlap
-        let baseX;
-        if (c.col === 0) {
-          // Anchored left: left edge at edgeMargin
-          baseX = edgeMargin;
-        } else {
-          // Anchored right: right edge at stageW - edgeMargin
-          baseX = stageW - w - edgeMargin;
-        }
-        c.x = baseX;
-        // Evenly distribute phases within column
-        c.phase = (c.cardIndexInCol / perCol[c.col]) % 1;
-      });
+    // Build a block: fill with cards in a shuffled order, with rotating size classes
+    function buildBlock(block, seed) {
+      // Clear existing
+      block.innerHTML = '';
+      const count = cardsPerBlock();
+      // Shuffle images with this seed
+      const shuffled = seededShuffle(GALLERY_IMAGES, seed);
+      // Also shuffle size class assignment independently for visual variety
+      const sizeShuffled = seededShuffle([0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2], seed + 7);
+      for (let i = 0; i < count; i++) {
+        const src = shuffled[i % shuffled.length];
+        const sizeIdx = sizeShuffled[i % sizeShuffled.length];
+        const sizeClass = SIZE_CLASSES[sizeIdx];
+        const card = document.createElement('div');
+        card.className = 'gallery-card ' + sizeClass;
+        const img = document.createElement('img');
+        img.src = src;
+        img.alt = 'Gallery photo ' + ((i % shuffled.length) + 1);
+        img.loading = 'lazy';
+        card.appendChild(img);
+        block.appendChild(card);
+      }
     }
 
-    // rAF loop
-    let rafId = null;
+    // Initial build: blockA with seed 1, blockB with seed 2 (different shuffles)
+    buildBlock(blockA, 1);
+    buildBlock(blockB, 2);
+
+    // Measure block height (after layout)
+    function measureBlockHeight() {
+      // Use blockA as reference (both blocks have same structure)
+      return blockA.offsetHeight;
+    }
+    let blockHeight = measureBlockHeight();
+
+    // Animation state
+    let offsetY = 0;
     let lastTime = 0;
     let isVisible = true;
+    let nextSeed = 100; // incrementing seed for each rebuild
+    let rafId = null;
+
+    // Speed: px per second. Slower = more elegant.
+    const SPEED = isMobile ? 35 : 50;
 
     function tick(now) {
       if (!isVisible) {
@@ -474,87 +407,64 @@
         return;
       }
       if (!lastTime) lastTime = now;
-      const dt = now - lastTime;
+      const dt = (now - lastTime) / 1000; // seconds
       lastTime = now;
 
-      if (isMobile) {
-        // Mobile: 2-column vertical rising (no overlap)
-        // Only first 12 cards are used on mobile; rest are hidden.
-        const stageH = stageDims.h;
-        mobileCards.forEach(function (c) {
-          const t = ((now / c.duration) + c.phase) % 1;
-          const cardH = c.el.offsetHeight;
-          const startY = stageH + cardH + 20;
-          const endY = -cardH - 20;
-          const y = startY + (endY - startY) * t;
-          let opacity = 1;
-          if (t < 0.08) opacity = t / 0.08;
-          else if (t > 0.92) opacity = (1 - t) / 0.08;
-          c.el.style.transform = 'translate3d(' + c.x + 'px, ' + y + 'px, 0)';
-          c.el.style.opacity = opacity;
-          c.el.style.display = '';
-        });
-        // Hide cards beyond mobile set
-        for (let i = mobileCards.length; i < cardEls.length; i++) {
-          cardEls[i].style.display = 'none';
-        }
-      } else {
-        // Desktop: make sure all cards are visible
-        cardEls.forEach(function (el) { el.style.display = ''; });
-        // Vertical rising
-        desktopCards.forEach(function (c) {
-          const t = ((now / c.duration) + c.phase) % 1;
-          const y = c.startY + (c.endY - c.startY) * t;
-          // Opacity: fade in/out at edges
-          let opacity = 1;
-          if (t < 0.08) opacity = t / 0.08;
-          else if (t > 0.92) opacity = (1 - t) / 0.08;
-          // Use translate3d only — pure GPU transform, no rotate (avoid compositor conflicts)
-          // Rotation is applied via a child wrapper if needed; for now keep it pure translate
-          c.el.style.transform = 'translate3d(' + c.x + 'px, ' + y + 'px, 0)';
-          c.el.style.opacity = opacity;
-        });
+      offsetY += SPEED * dt;
+
+      // When block A (top block) has fully scrolled out of view,
+      // it's off-screen above. Rebuild it with new shuffle (still off-screen).
+      if (offsetY >= blockHeight) {
+        // Block A is now off-screen above. Rebuild it.
+        nextSeed += 1;
+        buildBlock(blockA, nextSeed);
+        // Decrement offsetY by blockHeight — block B is now visually at top
+        offsetY -= blockHeight;
+        // Swap DOM order: move blockA after blockB so blockB is now first (top)
+        track.appendChild(blockA);
+        // Now blockB is at top (DOM order: B, A), and we just rebuilt A (which is at bottom)
+        // Continue scrolling — when offsetY reaches blockHeight again, blockB will be off-screen
+        // and we'll rebuild it and swap again.
       }
 
+      track.style.transform = 'translate3d(0, ' + (-offsetY) + 'px, 0)';
       rafId = requestAnimationFrame(tick);
     }
 
-    // Pause when tab is hidden (saves battery + avoids frame jumps)
+    // Pause when tab is hidden
     document.addEventListener('visibilitychange', function () {
       isVisible = !document.hidden;
-      if (isVisible) lastTime = 0; // reset to avoid dt jump
+      if (isVisible) lastTime = 0;
     });
 
-    // ---------- Resize handler: recompute layout on viewport change ----------
+    // Recompute on resize (debounced)
     let resizeTimer = null;
     function onResize() {
       const newIsMobile = mqMobile.matches;
       if (newIsMobile !== isMobile) {
         isMobile = newIsMobile;
+        // Rebuild both blocks with new card count
+        nextSeed += 1;
+        buildBlock(blockA, nextSeed);
+        nextSeed += 1;
+        buildBlock(blockB, nextSeed);
+        // Reset to ensure blockA is first in DOM
+        track.appendChild(blockB); // move B after A
+        // Wait — we want A first. Let me re-append A first:
+        track.insertBefore(blockA, blockB); // A before B
+        offsetY = 0;
       }
-      stageDims = getStageDims();
-      // Recompute desktop card positions
-      desktopCards.forEach(function (c, i) {
-        const col = i % COLS_DESKTOP;
-        const colWidth = stageDims.w / COLS_DESKTOP;
-        const baseX = col * colWidth + (colWidth / 2) - 100;
-        const jitter = Math.sin(i * 7.3) * 30 - 15;
-        c.x = baseX + jitter;
-        c.startY = stageDims.h + 50;
-      });
-      if (isMobile) applyMobileLayout();
+      blockHeight = measureBlockHeight();
     }
     window.addEventListener('resize', function () {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(onResize, 150);
+      resizeTimer = setTimeout(onResize, 200);
     });
 
-    // Initial mobile layout if needed
-    if (isMobile) applyMobileLayout();
-
-    // Start animation loop
+    // Start
     rafId = requestAnimationFrame(tick);
   })();
+
 
   // ---------- INIT ----------
   applyLang(initialLang);
