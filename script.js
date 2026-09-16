@@ -81,9 +81,12 @@
 
   const ageGate = document.getElementById('ageGate');
   if (getCookie('kate_age_verified') === '1') {
+    // Cookie exists — keep gate hidden, unlock body
     ageGate.hidden = true;
     document.body.classList.remove('age-locked');
   } else {
+    // No cookie — show gate, lock body until user confirms
+    ageGate.hidden = false;
     document.body.classList.add('age-locked');
   }
 
@@ -300,17 +303,15 @@
     });
   });
 
-  // ---------- PORTFOLIO GALLERY (dual-block rising tape, rAF-driven) ----------
+  // ---------- PORTFOLIO GALLERY ----------
   (function initGallery() {
     const stage = document.getElementById('galleryStage');
     const track = document.getElementById('galleryTrack');
-    const blockA = document.getElementById('galleryBlockA');
-    const blockB = document.getElementById('galleryBlockB');
-    if (!stage || !track || !blockA || !blockB) return;
+    if (!stage || !track) return;
 
-    // ---------- USER: list your gallery photos here ----------
-    // Drop your files into assets/gallery/ and list them below.
-    // 20–30 photos is the sweet spot. webp or jpg both work.
+    let lastTime = 0;
+    let startTime = 0;
+
     const GALLERY_IMAGES = [
       'assets/gallery/photo-01.webp',
       'assets/gallery/photo-02.webp',
@@ -335,16 +336,6 @@
       'assets/gallery/photo-21.webp',
     ];
 
-    const SIZE_CLASSES = ['gallery-card--sm', 'gallery-card--md', 'gallery-card--lg'];
-    const mqMobile = window.matchMedia('(max-width: 767px)');
-    let isMobile = mqMobile.matches;
-
-    // Cards per block: 3×7=21 desktop, 2×10=20 mobile
-    function cardsPerBlock() {
-      return isMobile ? 20 : 21;
-    }
-
-    // Stable seeded shuffle (deterministic per seed)
     function seededShuffle(arr, seed) {
       const a = arr.slice();
       let s = seed || 1;
@@ -356,113 +347,166 @@
       return a;
     }
 
-    // Build a block: fill with cards in a shuffled order, with rotating size classes
-    function buildBlock(block, seed) {
-      // Clear existing
-      block.innerHTML = '';
-      const count = cardsPerBlock();
-      // Shuffle images with this seed
-      const shuffled = seededShuffle(GALLERY_IMAGES, seed);
-      // Also shuffle size class assignment independently for visual variety
-      const sizeShuffled = seededShuffle([0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2], seed + 7);
-      for (let i = 0; i < count; i++) {
-        const src = shuffled[i % shuffled.length];
-        const sizeIdx = sizeShuffled[i % sizeShuffled.length];
-        const sizeClass = SIZE_CLASSES[sizeIdx];
-        const card = document.createElement('div');
-        card.className = 'gallery-card ' + sizeClass;
-        const img = document.createElement('img');
-        img.src = src;
-        img.alt = 'Gallery photo ' + ((i % shuffled.length) + 1);
-        img.loading = 'lazy';
-        card.appendChild(img);
-        block.appendChild(card);
-      }
-    }
-
-    // Initial build: blockA with seed 1, blockB with seed 2 (different shuffles)
-    buildBlock(blockA, 1);
-    buildBlock(blockB, 2);
-
-    // Measure block height (after layout)
-    function measureBlockHeight() {
-      // Use blockA as reference (both blocks have same structure)
-      return blockA.offsetHeight;
-    }
-    let blockHeight = measureBlockHeight();
-
-    // Animation state
-    let offsetY = 0;
-    let lastTime = 0;
-    let isVisible = true;
-    let nextSeed = 100; // incrementing seed for each rebuild
+    const mqMobile = window.matchMedia('(max-width: 767px)');
+    let isMobile = mqMobile.matches;
     let rafId = null;
+    let isVisible = true;
 
-    // Speed: px per second. Slower = more elegant.
-    const SPEED = isMobile ? 35 : 50;
+    // ---------- DESKTOP: 7-slide vertical auto-slider ----------
+    // 3 cards per slide, 3s hold + 0.6s transition, loop infinitely
+    function initDesktop() {
+      track.innerHTML = '';
+      const DESKTOP_SLIDES = 7;
+      const CARDS_PER_SLIDE = 3;
+      const HOLD_MS = 3000;
+      const TRANSITION_MS = 600;
+      const TOTAL_SLIDE_MS = HOLD_MS + TRANSITION_MS;
 
-    function tick(now) {
-      if (!isVisible) {
-        rafId = requestAnimationFrame(tick);
-        return;
+      // Build 7 slides, each with 3 cards (shuffled)
+      const slides = [];
+      for (let s = 0; s < DESKTOP_SLIDES; s++) {
+        const slide = document.createElement('div');
+        slide.className = 'gallery-slide';
+        const shuffled = seededShuffle(GALLERY_IMAGES, s * 17 + 1);
+        for (let c = 0; c < CARDS_PER_SLIDE; c++) {
+          const card = document.createElement('div');
+          card.className = 'gallery-card';
+          const img = document.createElement('img');
+          img.src = shuffled[c];
+          img.alt = 'Gallery photo ' + (c + 1);
+          img.loading = 'lazy';
+          card.appendChild(img);
+          slide.appendChild(card);
+        }
+        track.appendChild(slide);
+        slides.push(slide);
       }
-      if (!lastTime) lastTime = now;
-      const dt = (now - lastTime) / 1000; // seconds
-      lastTime = now;
 
-      offsetY += SPEED * dt;
+      const slideHeight = stage.clientHeight;
+      let startTime = 0;
 
-      // When block A (top block) has fully scrolled out of view,
-      // it's off-screen above. Rebuild it with new shuffle (still off-screen).
-      if (offsetY >= blockHeight) {
-        // Block A is now off-screen above. Rebuild it.
-        nextSeed += 1;
-        buildBlock(blockA, nextSeed);
-        // Decrement offsetY by blockHeight — block B is now visually at top
-        offsetY -= blockHeight;
-        // Swap DOM order: move blockA after blockB so blockB is now first (top)
-        track.appendChild(blockA);
-        // Now blockB is at top (DOM order: B, A), and we just rebuilt A (which is at bottom)
-        // Continue scrolling — when offsetY reaches blockHeight again, blockB will be off-screen
-        // and we'll rebuild it and swap again.
+      function tickDesktop(now) {
+        if (!isVisible) { rafId = requestAnimationFrame(tickDesktop); return; }
+        if (!startTime) startTime = now;
+        const elapsed = now - startTime;
+        const cyclePos = elapsed % (TOTAL_SLIDE_MS * DESKTOP_SLIDES);
+        const slideIndex = Math.floor(cyclePos / TOTAL_SLIDE_MS);
+        const withinSlide = cyclePos % TOTAL_SLIDE_MS;
+        let offsetY;
+        if (withinSlide < HOLD_MS) {
+          // Hold on current slide
+          offsetY = slideIndex * slideHeight;
+        } else {
+          // Transition: ease from current slide to next
+          const progress = (withinSlide - HOLD_MS) / TRANSITION_MS;
+          const eased = 0.5 - 0.5 * Math.cos(Math.PI * progress); // smoothstep
+          const from = slideIndex * slideHeight;
+          const to = (slideIndex + 1) * slideHeight;
+          offsetY = from + (to - from) * eased;
+        }
+        track.style.transform = 'translate3d(0, ' + (-offsetY) + 'px, 0)';
+        rafId = requestAnimationFrame(tickDesktop);
       }
-
-      track.style.transform = 'translate3d(0, ' + (-offsetY) + 'px, 0)';
-      rafId = requestAnimationFrame(tick);
+      rafId = requestAnimationFrame(tickDesktop);
     }
 
-    // Pause when tab is hidden
+    // ---------- MOBILE: 2-block scrolling grid, 2×10 per block ----------
+    function initMobile() {
+      track.innerHTML = '';
+      const MOBILE_BLOCKS = 2;
+      const CARDS_PER_BLOCK = 20; // 2 cols × 10 rows
+
+      const blocks = [];
+      for (let b = 0; b < MOBILE_BLOCKS; b++) {
+        const block = document.createElement('div');
+        block.className = 'gallery-block';
+        const shuffled = seededShuffle(GALLERY_IMAGES, b * 31 + 5);
+        for (let c = 0; c < CARDS_PER_BLOCK; c++) {
+          const card = document.createElement('div');
+          card.className = 'gallery-card';
+          const img = document.createElement('img');
+          img.src = shuffled[c % shuffled.length];
+          img.alt = 'Gallery photo ' + (c + 1);
+          img.loading = 'lazy';
+          card.appendChild(img);
+          block.appendChild(card);
+        }
+        track.appendChild(block);
+        blocks.push(block);
+      }
+
+      let offsetY = 0;
+      let lastTime = 0;
+      const SPEED = 35; // px per second
+      let nextSeed = 100;
+
+      function rebuildBlock(block) {
+        nextSeed += 1;
+        const shuffled = seededShuffle(GALLERY_IMAGES, nextSeed);
+        const cards = block.querySelectorAll('.gallery-card');
+        cards.forEach(function (card, i) {
+          const img = card.querySelector('img');
+          if (img) img.src = shuffled[i % shuffled.length];
+        });
+      }
+
+      function tickMobile(now) {
+        if (!isVisible) { rafId = requestAnimationFrame(tickMobile); return; }
+        if (!lastTime) lastTime = now;
+        const dt = (now - lastTime) / 1000;
+        lastTime = now;
+
+        offsetY += SPEED * dt;
+        const blockHeight = blocks[0].offsetHeight;
+
+        if (offsetY >= blockHeight) {
+          // Block 0 (top) is off-screen. Rebuild it, swap order.
+          rebuildBlock(blocks[0]);
+          offsetY -= blockHeight;
+          // Swap: move block[0] to end
+          track.appendChild(blocks[0]);
+          // Rotate array
+          blocks.push(blocks.shift());
+        }
+
+        track.style.transform = 'translate3d(0, ' + (-offsetY) + 'px, 0)';
+        rafId = requestAnimationFrame(tickMobile);
+      }
+      rafId = requestAnimationFrame(tickMobile);
+    }
+
+    // ---------- Init based on viewport ----------
+    function init() {
+      if (rafId) cancelAnimationFrame(rafId);
+      isMobile = mqMobile.matches;
+      if (isMobile) {
+        initMobile();
+      } else {
+        initDesktop();
+      }
+    }
+    init();
+
+    // ---------- Pause when tab hidden ----------
     document.addEventListener('visibilitychange', function () {
       isVisible = !document.hidden;
-      if (isVisible) lastTime = 0;
+      if (isVisible) {
+        lastTime = 0;
+        startTime = 0;
+      }
     });
 
-    // Recompute on resize (debounced)
+    // ---------- Resize: re-init on breakpoint change ----------
     let resizeTimer = null;
-    function onResize() {
-      const newIsMobile = mqMobile.matches;
-      if (newIsMobile !== isMobile) {
-        isMobile = newIsMobile;
-        // Rebuild both blocks with new card count
-        nextSeed += 1;
-        buildBlock(blockA, nextSeed);
-        nextSeed += 1;
-        buildBlock(blockB, nextSeed);
-        // Reset to ensure blockA is first in DOM
-        track.appendChild(blockB); // move B after A
-        // Wait — we want A first. Let me re-append A first:
-        track.insertBefore(blockA, blockB); // A before B
-        offsetY = 0;
-      }
-      blockHeight = measureBlockHeight();
-    }
     window.addEventListener('resize', function () {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(onResize, 200);
+      resizeTimer = setTimeout(function () {
+        const newIsMobile = mqMobile.matches;
+        if (newIsMobile !== isMobile) {
+          init();
+        }
+      }, 200);
     });
-
-    // Start
-    rafId = requestAnimationFrame(tick);
   })();
 
 
